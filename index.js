@@ -1,5 +1,6 @@
 require("dotenv").config();
 const {Bot, GrammyError, HttpError} = require("grammy");
+const tasks = [];
 
 const bot = new Bot (process.env.BOT_API_KEY);
 
@@ -67,6 +68,34 @@ bot.command("help", async (ctx) => {
     "/donetask <ID> — отметить задачу как выполненную\n" +
     "/overdue — показать просроченные задачи");
 });
+
+bot.command("addtask", async(ctx) =>{
+  const text = ctx.message.text.split(" ").slice(1).join(" ");
+  if (!text){
+    return await ctx.reply("Укажите текст задачи после команды.");
+  }
+
+  const id = tasks.length + 1;
+  tasks.push({id,text, done:false, reminder: null});
+  await ctx.reply(`Задача добавлена: "${text}" (ID: ${id})`);
+})
+
+bot.command("tasks", async (ctx) =>{
+  if (tasks.length === 0){
+    return await ctx.reply("Список задач пуст.");
+  }
+  const taskList = tasks.map((task) => `${task.id}. ${task.text} [${task.done ? "✔" : "❌"}]`).join("\n");
+  await ctx.reply(`Ваши задачи:\n${taskList}`);
+});
+
+bot.command("deltask", async (ctx) =>{
+  const id = parseInt(ctx.message.text.split(" ")[1],10);
+  if (!id || !tasks.find((task) => task.id === id)){
+    return await ctx.reply("Задача с таким ID не найдена.");
+  };
+  tasks.splice(tasks.findIndex((task) => task.id === id), 1);
+  await ctx.reply(`Задача с ID: ${id} удалена.`)
+})
 
 bot.catch((err) =>{
   const ctx = err.ctx;
