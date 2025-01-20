@@ -2,6 +2,7 @@ require("dotenv").config();
 const { Bot, GrammyError, HttpError } = require("grammy");
 
 const tasks = [];
+const reminders = [];
 const userStates = {}; // Хранилище состояний пользователей
 
 const bot = new Bot(process.env.BOT_API_KEY);
@@ -29,23 +30,19 @@ bot.api.setMyCommands([
   },
   {
     command: "cleartasks",
-    description: "очистить все задачи",
+    description: "Очистить все задачи",
   },
   {
     command: "setreminder",
-    description: "установить напоминание",
+    description: "Установить напоминание",
   },
   {
     command: "edittask",
-    description: "изменить текст задачи",
+    description: "Изменить текст задачи",
   },
   {
     command: "donetask",
-    description: "отметить задачу как выполненную",
-  },
-  {
-    command: "overdue",
-    description: "показать просроченные задачи",
+    description: "Отметить задачу как выполненную",
   },
 ]);
 
@@ -70,8 +67,7 @@ bot.command("help", async (ctx) => {
       "/cleartasks — очистить все задачи\n" +
       "/setreminder — установить напоминание\n" +
       "/edittask — изменить текст задачи\n" +
-      "/donetask — отметить задачу как выполненную\n" +
-      "/overdue — показать просроченные задачи"
+      "/donetask — отметить задачу как выполненную\n"
   );
 });
 
@@ -85,13 +81,13 @@ bot.command("tasks", async (ctx) => {
     return await ctx.reply("Список задач пуст.");
   }
   const taskList = tasks
-    .map((task) => `${task.id}. ${task.text} [${task.done ? "✔️" : "❌"}]`)
+    .map((task) => `${task.id}. ${task.text} [${task.done ? "✅" : "❌"}]`)
     .join("\n");
   await ctx.reply(`Ваши задачи:\n${taskList}`);
 });
 
 bot.command("deltask", async (ctx) => {
-  userStates[ctx.chat.id] = { state: "waiting_for_task_id" };
+  userStates[ctx.chat.id] = { state: "waiting_for_task_id_for_del" };
   await ctx.reply("Введите ID задачи, которую вы хотите удалить.");
 });
 
@@ -109,6 +105,14 @@ bot.command("edittask", async (ctx) => {
 bot.command("donetask", async (ctx) => {
   userStates[ctx.chat.id] = { state: "waiting_for_task_id_for_done" };
   await ctx.reply("Введите ID задачи, которую вы хотите отметить выполненной.");
+});
+
+bot.command("setreminder", async (ctx) => {
+  userStates[ctx.chat.id] = { state: "waiting_for_reminder_time" };
+  await ctx.reply(
+    "Введите время напоминания в формате YYYY-MM-DD HH:MM и текст задачи через запятую.\n" +
+      "Пример: 2025-01-17 15:30, Позвонить врачу"
+  );
 });
 
 // Обработчик сообщений для состояний пользователя
@@ -131,7 +135,7 @@ bot.on("message", async (ctx) => {
   }
 
   // Обработка команды удаления задачи
-  if (state && state.state === "waiting_for_task_id") {
+  if (state && state.state === "waiting_for_task_id_for_del") {
     const id = parseInt(ctx.message.text, 10);
 
     if (!id || !tasks.find((task) => task.id === id)) {
@@ -145,7 +149,7 @@ bot.on("message", async (ctx) => {
     });
 
     await ctx.reply(`Задача с ID: ${id} удалена. ID задач обновлены.`);
-    delete userStates[ctx.chat.id]; // Сбрасываем состояние
+    delete userStates[ctx.chat.id];
     return;
   }
 
@@ -176,11 +180,10 @@ bot.on("message", async (ctx) => {
       await ctx.reply(`Задача с ID ${task.id} успешно отредактирована. Новый текст: "${newText}"`);
     }
 
-    delete userStates[ctx.chat.id]; // Сбрасываем состояние
+    delete userStates[ctx.chat.id];
     return;
   }
 
-  // Обработка пометки задачи как выполненной
   if (state && state.state === "waiting_for_task_id_for_done") {
     const id = parseInt(ctx.message.text, 10);
     const task = tasks.find((task) => task.id === id);
@@ -190,9 +193,46 @@ bot.on("message", async (ctx) => {
       return;
     }
 
-    task.done = true; // Помечаем задачу как выполненную
+    task.done = true;
     await ctx.reply(`Задача с ID ${id} помечена как выполненная.`);
-    delete userStates[ctx.chat.id]; // Сбрасываем состояние
+    delete userStates[ctx.chat.id];
+    return;
+  }
+  if (state && state.state === "waiting_for_reminder_time") {
+    const input = ctx.message.text.split(",");
+    if (input.length < 2) {
+      await ctx.reply("Неверный формат. Попробуйте снова.");
+      return;
+    }
+
+    const reminderTime = new Date(input[0].trim());
+    const reminderText = input[1].trim();
+
+    if (isNaN(reminderTime.getTime())) {
+      await ctx.reply("Неверный формат времени. Попробуйте снова.");
+      return;
+    }
+
+    const timeUntilReminder = reminderTime - new Date();
+    if (timeUntilReminder <= 0) {
+      await ctx.reply("Указанное время уже прошло. Попробуйте снова.");
+      return;
+    }
+
+    reminders.push({
+      chatId: ctx.chat.id,
+      text: reminderText,
+      time: reminderTime,
+    });
+
+    setTimeout(async () => {
+      await ctx.reply(`Напоминание: "${reminderText}"`);
+    }, timeUntilReminder);
+
+    await ctx.reply(
+      `Напоминание установлено на ${reminderTime.toLocaleString()}: "${reminderText}"`
+    );
+    delete userStates[ctx.chat.id];
     return;
   }
 
